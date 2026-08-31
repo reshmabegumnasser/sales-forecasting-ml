@@ -398,22 +398,34 @@ generate = st.sidebar.button(
 # FORECAST
 # ============================================================
 
+# ============================================================
+# FORECAST
+# ============================================================
+
 if generate:
 
     predictions = []
 
-    start_date = datetime.today().date()
+    # Start forecasting from tomorrow
+    start_date = datetime.today().date() + timedelta(days=1)
+
+    # Keep the historical reference values supplied by the user
+    reference_sales = float(current_reference_sales)
+    sales_3_ago = float(sales_3_periods_ago)
 
     for i in range(forecast_days):
 
         forecast_date = start_date + timedelta(days=i)
 
-        # Weekend changes by forecast date
+        # Weekend based on forecast date
         is_forecast_weekend = (
             1 if forecast_date.weekday() >= 5 else 0
         )
 
-        # Generate model input
+        # ----------------------------------------------------
+        # CREATE MODEL INPUT
+        # ----------------------------------------------------
+
         X = create_features(
             price=price,
             competitor_price=competitor_price,
@@ -422,21 +434,61 @@ if generate:
             stock=stock,
             holiday=holiday,
             local_event=local_event,
-            weekend="Yes" if is_forecast_weekend else "No",
+
+            weekend=(
+                "Yes"
+                if is_forecast_weekend
+                else "No"
+            ),
+
             economic_indicator=economic_indicator,
             marketing_spend=marketing_spend,
-            sales_3_periods_ago=sales_3_periods_ago,
-            current_reference_sales=current_reference_sales
+
+            sales_3_periods_ago=sales_3_ago,
+            current_reference_sales=reference_sales
         )
+
+        # ----------------------------------------------------
+        # PREDICT
+        # ----------------------------------------------------
 
         prediction = predict_sales(X)
 
+        # Round to whole units
+        prediction = max(0, round(prediction))
+
+        # ----------------------------------------------------
+        # STORE RESULT
+        # ----------------------------------------------------
+
         predictions.append({
             "Forecast Date": forecast_date,
-            "Predicted Units Sold": round(prediction)
+            "Predicted Units Sold": prediction
         })
 
+        # ----------------------------------------------------
+        # UPDATE REFERENCE
+        # ----------------------------------------------------
+        #
+        # We update the current reference sales with
+        # the latest prediction.
+        #
+        # The original 3-period historical value is retained
+        # because the UI does not provide the intermediate
+        # historical observations required to recalculate
+        # sales_change_3 exactly.
+        #
+        reference_sales = float(prediction)
+
+    # --------------------------------------------------------
+    # CREATE FORECAST DATAFRAME
+    # --------------------------------------------------------
+
     forecast_df = pd.DataFrame(predictions)
+
+    # --------------------------------------------------------
+    # SUMMARY
+    # --------------------------------------------------------
 
     total_forecast = int(
         forecast_df["Predicted Units Sold"].sum()
@@ -454,20 +506,18 @@ if generate:
         forecast_df["Predicted Units Sold"].min()
     )
 
-
-    # ========================================================
+    # --------------------------------------------------------
     # SUCCESS MESSAGE
-    # ========================================================
+    # --------------------------------------------------------
 
     st.success(
         f"Forecast generated successfully for "
         f"{product} at {store}."
     )
 
-
-    # ========================================================
+    # --------------------------------------------------------
     # FORECAST SUMMARY
-    # ========================================================
+    # --------------------------------------------------------
 
     st.markdown(
         '<div class="section-title">📊 Forecast Summary</div>',
@@ -500,10 +550,9 @@ if generate:
             f"{lowest_forecast} Units"
         )
 
-
-    # ========================================================
-    # FORECAST CHART
-    # ========================================================
+    # --------------------------------------------------------
+    # FORECAST GRAPH
+    # --------------------------------------------------------
 
     st.markdown(
         '<div class="section-title">📈 Sales Forecast</div>',
@@ -518,16 +567,23 @@ if generate:
             y=forecast_df["Predicted Units Sold"],
             mode="lines+markers",
             name="Forecast",
-            line=dict(width=3)
+            line=dict(width=3),
+            marker=dict(size=6)
         )
     )
 
     fig.update_layout(
         height=450,
-        xaxis_title="Date",
+        xaxis_title="Forecast Date",
         yaxis_title="Predicted Units Sold",
         hovermode="x unified",
-        template="plotly_dark"
+        template="plotly_dark",
+        margin=dict(
+            l=20,
+            r=20,
+            t=40,
+            b=20
+        )
     )
 
     st.plotly_chart(
@@ -535,10 +591,9 @@ if generate:
         use_container_width=True
     )
 
-
-    # ========================================================
-    # FORECAST TABLE
-    # ========================================================
+    # --------------------------------------------------------
+    # FUTURE FORECAST TABLE
+    # --------------------------------------------------------
 
     st.markdown(
         '<div class="section-title">📋 Future Sales Forecast</div>',
@@ -557,10 +612,9 @@ if generate:
         hide_index=True
     )
 
-
-    # ========================================================
+    # --------------------------------------------------------
     # DOWNLOAD
-    # ========================================================
+    # --------------------------------------------------------
 
     csv = forecast_df.to_csv(
         index=False
@@ -574,6 +628,85 @@ if generate:
         use_container_width=True
     )
 
+    # --------------------------------------------------------
+    # MODEL PERFORMANCE
+    # --------------------------------------------------------
+
+    st.markdown("---")
+
+    with st.expander("📌 Model Performance"):
+
+        m1, m2, m3, m4 = st.columns(4)
+
+        m1.metric(
+            "RMSE",
+            f"{MODEL_RMSE:.3f}"
+        )
+
+        m2.metric(
+            "MAE",
+            f"{MODEL_MAE:.3f}"
+        )
+
+        m3.metric(
+            "WAPE",
+            f"{MODEL_WAPE:.3f}%"
+        )
+
+        m4.metric(
+            "Accuracy",
+            f"{MODEL_ACCURACY:.3f}%"
+        )
+
+    # --------------------------------------------------------
+    # INPUT SUMMARY
+    # --------------------------------------------------------
+
+    with st.expander("🔎 Forecast Input Parameters"):
+
+        input_summary = pd.DataFrame({
+            "Parameter": [
+                "Product",
+                "Store",
+                "Category",
+                "Price",
+                "Discount",
+                "Promotion",
+                "Stock Availability",
+                "Holiday",
+                "Local Event",
+                "Weekend",
+                "Competitor Price",
+                "Economic Indicator",
+                "Marketing Spend",
+                "Sales 3 Periods Ago",
+                "Current Reference Sales"
+            ],
+
+            "Value": [
+                product,
+                store,
+                category,
+                price,
+                discount,
+                promotion,
+                stock,
+                holiday,
+                local_event,
+                weekend,
+                competitor_price,
+                economic_indicator,
+                marketing_spend,
+                sales_3_periods_ago,
+                current_reference_sales
+            ]
+        })
+
+        st.dataframe(
+            input_summary,
+            use_container_width=True,
+            hide_index=True
+        )
 
     # ========================================================
     # MODEL PERFORMANCE
